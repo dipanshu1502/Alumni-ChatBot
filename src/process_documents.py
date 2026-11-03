@@ -8,13 +8,18 @@ def process_documents():
 
     for document in documents:
         filename = document["filename"]
-        text = document["text"]
+        page_chunks = []
+        if document.get("pages"):
+            for page in document["pages"]:
+                for chunk in split_into_chunks(page["text"], chunk_size=500, overlap=100):
+                    page_chunks.append((page["page_number"], chunk))
+        else:
+            page_chunks = [(None, chunk) for chunk in split_into_chunks(document["text"], chunk_size=500, overlap=100)]
 
-        chunks = split_into_chunks(text, chunk_size=500, overlap=100)
-        for index, chunk in enumerate(chunks):
-            all_chunks.append({"filename": filename, "chunk_id": index, "text": chunk})
+        for index, (page_number, chunk) in enumerate(page_chunks):
+            all_chunks.append({"filename": filename, "page_number": page_number, "chunk_id": index, "text": chunk})
 
-        print(f"{filename}: {len(chunks)} chunks created")
+        print(f"{filename}: {len(page_chunks)} chunks created")
 
     return all_chunks
 

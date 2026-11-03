@@ -65,11 +65,14 @@ VITE_API_URL=http://127.0.0.1:8000
 PDFs in `data/` are used to create `vector_db/index.faiss` and `vector_db/chunks.pkl`. Rebuild the index after adding or changing documents. Run this from the project root so the relative `data/` and `vector_db/` paths resolve correctly:
 
 ```powershell
-$env:PYTHONPATH = "$PWD\src"
-.\venv\Scripts\python.exe .\src\vector_store.py
+.\venv\Scripts\python.exe .\retrain.py
 ```
 
+This rebuilds the PDF chunks, embeddings, and FAISS index. It refreshes the chatbot's document knowledge; it does not fine-tune the hosted Groq language model.
+
 The embedding model `all-MiniLM-L6-v2` is downloaded by Sentence Transformers when first needed.
+PDF match filtering uses cosine similarity. Set `PDF_MIN_SIMILARITY` in the root `.env` to tune the cutoff (valid range: `-1` to `1`; default: `0.35`). After changing the cutoff, compare representative questions and adjust based on missed or irrelevant matches.
+Rebuild the vector store after this update to include PDF page numbers in source citations.
 
 ## Run the application
 
@@ -122,7 +125,7 @@ Returns a message indicating that the API is running.
 
 ### `GET /health`
 
-Returns a lightweight health check response.
+Reports Groq configuration and whether either the PDF index or live portal is available. `status` is `ok` when Groq is configured and at least one knowledge source is ready; otherwise it is `degraded`.
 
 ### `POST /chat`
 

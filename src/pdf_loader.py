@@ -16,14 +16,14 @@ def extract_all_pdfs(data_folder=None):
         print(f"\nReading: {pdf_file.name}")
 
         reader = PdfReader(str(pdf_file))
-        full_text = ""
-
-        for page in reader.pages:
+        pages = []
+        for page_number, page in enumerate(reader.pages, start=1):
             text = page.extract_text()
             if text:
-                full_text += text + "\n"
+                pages.append({"page_number": page_number, "text": text})
 
-        documents.append({"filename": pdf_file.name, "text": full_text})
+        full_text = "\n".join(page["text"] for page in pages)
+        documents.append({"filename": pdf_file.name, "text": full_text, "pages": pages})
         print(f"Pages: {len(reader.pages)}")
         print(f"Characters extracted: {len(full_text)}")
 

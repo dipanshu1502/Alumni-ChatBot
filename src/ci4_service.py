@@ -130,10 +130,8 @@ STATS_ALLOWED = [
 # Question classification (word-boundary matching; Latin + Hindi keywords)
 # --------------------------------------------------------------------------
 ENDPOINT_KEYWORDS = {
-    "events": ["event", "seminar", "workshop", "conference", "upcoming", "webinar",
-               "reunion", "meetup", "karyakram", "कार्यक्रम", "इवेंट", "आयोजन"],
-    "jobs": ["job", "opportunity", "career", "placement", "recruitment", "internship",
-             "hiring", "vacancy", "naukri", "नौकरी", "रोजगार", "इंटर्नशिप"],
+    "events": ["event", "seminar", "workshop", "conference", "upcoming", "webinar", "reunion", "meetup", "karyakram", "कार्यक्रम", "इवेंट", "आयोजन"],
+    "jobs": ["job", "opportunity", "career", "placement", "recruitment", "internship", "hiring", "vacancy", "naukri", "नौकरी", "रोजगार", "इंटर्नशिप"],
     "alumni": ["alumni", "alumnus", "graduate", "पूर्व छात्र", "एलुमनाई", "अलुम्नी"],
     "chapters": ["chapter", "alumni chapter", "चैप्टर"],
     "stories": ["story", "stories", "success story", "achievement", "testimonial", "सफलता की कहानी"],

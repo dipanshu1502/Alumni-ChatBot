@@ -57,7 +57,9 @@ def _format_portal_context(portal_items):
 
 def _build_prompt(question, document_results, portal_items, portal_targets):
     document_context = "\n\n---\n\n".join(
-        f"Source: {r['filename']}\nContent: {r['text']}"
+        f"Source: {r['filename']}"
+        + (f" (page {r['page_number']})" if r.get("page_number") else "")
+        + f"\nContent: {r['text']}"
         for r in document_results[:5] if r.get("text")
     ) or "No relevant document passages were retrieved."
     portal_context = _format_portal_context(portal_items)
@@ -115,24 +117,42 @@ def generate_answer(question):
     wants_portal = bool(portal_targets) and portal_targets != ["documents"]
 
     portal_items = []
+    portal_failed = False
     if wants_portal:
         try:
             portal_items = fetch_relevant_portal_data(question, limit_per_endpoint=5, targets=portal_targets)
         except Exception:
             log.exception("Live portal fetch failed")
+            portal_failed = True
+        if any(item.get("error") for item in portal_items):
+            portal_failed = True
 
-    has_live_records = any(item.get("data") for item in portal_items)
-
-    # Live records win. If the website returned nothing usable, fall back to PDFs.
+    # Retrieve both sources so live data can answer current questions while PDFs
+    # can supply policy and procedural context.
     document_results = []
-    if not has_live_records:
-        try:
-            document_results = search_documents(question, top_k=5)
-        except Exception:
-            log.exception("Document search failed")
+    documents_failed = False
+    try:
+        document_results = search_documents(question, top_k=5)
+    except Exception:
+        log.exception("Document search failed")
+        documents_failed = True
+
+    has_source_data = bool(document_results) or any(item.get("data") for item in portal_items)
+    if not has_source_data and (
+        (documents_failed and (not wants_portal or portal_failed))
+        or (wants_portal and portal_failed)
+    ):
+        return {
+            "answer": "I can’t access the university information sources right now. Please try again shortly.",
+            "sources": [],
+            "status": "unavailable",
+        }
 
     # Sources = only what was actually given to the model.
-    doc_sources = list(dict.fromkeys(r["filename"] for r in document_results if r.get("filename")))
+    doc_sources = list(dict.fromkeys(
+        f"{r['filename']} (page {r['page_number']})" if r.get("page_number") else r["filename"]
+        for r in document_results if r.get("filename")
+    ))
     portal_sources = list(dict.fromkeys(
         f"portal:{item['source']}" for item in portal_items if item.get("data")
     ))
@@ -142,11 +162,15 @@ def generate_answer(question):
     try:
         answer = _answer_with_groq(prompt)
         if answer:
-            return {"answer": answer, "sources": sources}
+            return {"answer": answer, "sources": sources, "status": "ok"}
     except Exception:
         log.exception("Groq generation failed")
 
-    return {"answer": _fallback_answer(question), "sources": sources}
+    return {
+        "answer": "I couldn’t generate a reliable answer right now. Please try again shortly.",
+        "sources": sources,
+        "status": "unavailable",
+    }
 
 
 if __name__ == "__main__":

@@ -75,6 +75,10 @@ The embedding model `all-MiniLM-L6-v2` is downloaded by Sentence Transformers wh
 
 ### React frontend with FastAPI
 
+After completing setup, run `run.bat` from the project root to start the API and frontend in separate terminal windows. Open the Vite URL shown in the frontend terminal (normally `http://localhost:5173`).
+
+You can also start each service manually:
+
 Start the API from the project root:
 
 ```powershell
@@ -101,11 +105,24 @@ Alternatively, run the Streamlit app from the project root:
 .\venv\Scripts\python.exe -m streamlit run app.py
 ```
 
+## Hybrid AI architecture
+
+The assistant now combines two sources:
+
+- University PDF retrieval from the local `data/` documents and `vector_db/` index.
+- Live public alumni-portal data from the configured CodeIgniter 4 API at `http://localhost:8080/api` when the endpoint is available.
+
+The backend routes questions to the most appropriate source and safely filters public data before generating an answer.
+
 ## API
 
 ### `GET /`
 
 Returns a message indicating that the API is running.
+
+### `GET /health`
+
+Returns a lightweight health check response.
 
 ### `POST /chat`
 
@@ -134,3 +151,13 @@ The answer is generated from retrieved PDF content. If no relevant chunks are fo
 - **No relevant information is found:** Confirm the PDFs are in `data/` and rebuild the FAISS index.
 - **Missing Groq credentials:** Check that `GROQ_API_KEY` and `GROQ_MODEL` are set in the root `.env` file.
 - **PyTorch or model-loading errors:** Embeddings rely on PyTorch through Sentence Transformers. On Windows, an incompatible or incomplete PyTorch runtime can prevent the model from loading; resolve that environment issue before indexing or answering questions.
+
+
+Run Directly:
+1.
+$env:PYTHONPATH = "$PWD\src"
+.\venv\Scripts\python.exe -m uvicorn api:app --reload
+
+2.
+Set-Location frontend
+npm run dev

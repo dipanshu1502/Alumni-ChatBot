@@ -309,22 +309,6 @@ function App() {
                       {message.content}
                     </div>
 
-                    {message.sources?.length > 0 && (
-                      <div className="sources-block">
-                        <div className="sources-title">
-                          <FileText size={15} />
-                          Sources used
-                        </div>
-                        <div className="source-list">
-                          {message.sources.map((source) => (
-                            <span className="source-chip" key={source}>
-                              <FileText size={13} />
-                              {source}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}

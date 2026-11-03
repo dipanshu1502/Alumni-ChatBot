@@ -1,28 +1,25 @@
 from functools import lru_cache
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+except Exception:  # pragma: no cover - runtime dependency may be unavailable
+    SentenceTransformer = None
+
 from process_documents import process_documents
+
 
 @lru_cache(maxsize=1)
 def load_embedding_model():
+    if SentenceTransformer is None:
+        raise RuntimeError("sentence-transformers is not available in the current Python environment.")
+
     print("Loading embedding model...")
     model = SentenceTransformer("all-MiniLM-L6-v2")
     print("Embedding model loaded successfully!")
-    return model
-
-
-def load_embedding_model():
-
-    print("Loading embedding model...")
-
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    print("Embedding model loaded successfully!")
-
     return model
 
 
 def generate_embeddings(chunks, model):
-
     texts = [chunk["text"] for chunk in chunks]
 
     embeddings = model.encode(
@@ -35,14 +32,8 @@ def generate_embeddings(chunks, model):
 
 
 if __name__ == "__main__":
-
-    # Load all PDF chunks
     chunks = process_documents()
-
-    # Load embedding model
     model = load_embedding_model()
-
-    # Generate embeddings
     embeddings = generate_embeddings(chunks, model)
 
     print("\n========== EMBEDDING SUMMARY ==========")

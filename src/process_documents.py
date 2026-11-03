@@ -1,32 +1,18 @@
-
-from pdf_loader import extract_all_pdfs
 from chunking import split_into_chunks
+from pdf_loader import extract_all_pdfs
 
 
 def process_documents():
-
     documents = extract_all_pdfs()
-
     all_chunks = []
 
     for document in documents:
-
         filename = document["filename"]
         text = document["text"]
 
-        chunks = split_into_chunks(
-            text,
-            chunk_size=500,
-            overlap=100
-        )
-
+        chunks = split_into_chunks(text, chunk_size=500, overlap=100)
         for index, chunk in enumerate(chunks):
-
-            all_chunks.append({
-                "filename": filename,
-                "chunk_id": index,
-                "text": chunk
-            })
+            all_chunks.append({"filename": filename, "chunk_id": index, "text": chunk})
 
         print(f"{filename}: {len(chunks)} chunks created")
 
@@ -34,7 +20,6 @@ def process_documents():
 
 
 if __name__ == "__main__":
-
     chunks = process_documents()
 
     print("\n========== CHUNKING SUMMARY ==========")

@@ -113,9 +113,11 @@ Alternatively, run the Streamlit app from the project root:
 The assistant now combines two sources:
 
 - University PDF retrieval from the local `data/` documents and `vector_db/` index.
-- Live public alumni-portal data from the configured CodeIgniter 4 API at `http://localhost:8080/api` when the endpoint is available.
+- Live, allowlisted public data from the CodeIgniter 4 API at `http://localhost:8080/api` when the endpoint is available. Supported data includes alumni, events, jobs, chapters, stories, news, gallery albums, donation campaigns, and approved aggregate statistics.
 
-The backend routes questions to the most appropriate source and safely filters public data before generating an answer.
+The chatbot routes questions to relevant API categories and searches all supported public categories when a question does not identify one. It also searches the PDF knowledge base for every question. Multi-category public API lookups run concurrently. Set `CI4_API_BASE_URL` in the root `.env` file when the website API is hosted somewhere other than the local default.
+
+Only fields explicitly allowlisted by the chatbot are sent to the language model. It does not call authenticated/admin endpoints, the unsafe alumni-detail route, or unreviewed public settings. The public API must be running and return the data for it to be available in chat. Some API collections have no pagination, and public records not exposed by the documented API cannot be retrieved by the chatbot; add a reviewed public API route for those website sections rather than scraping the frontend or connecting the chatbot directly to MySQL.
 
 ## API
 

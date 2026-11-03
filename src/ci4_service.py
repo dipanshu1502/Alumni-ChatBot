@@ -10,6 +10,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -55,9 +56,10 @@ FIELD_MAP = {
         ("start_datetime", ["start_datetime", "start_date"]),
         ("end_datetime", ["end_datetime", "end_date"]),
         ("registration_deadline", ["registration_deadline"]),
+        ("registration_url", ["registration_url", "registration_link", "event_url"]),
     ],
     "alumni": [
-        ("name", ["name", "display_name"]),  # first_name + last_name added below
+        ("name", ["name", "display_name", "full_name", "student_name"]),  # first_name + last_name added below
         ("degree", ["degree"]),
         ("department", ["department"]),
         ("batch", ["batch_year", "batch"]),
@@ -68,6 +70,8 @@ FIELD_MAP = {
         ("country", ["location_country", "country"]),
         ("skills", ["skills"]),
         ("distinguished_title", ["distinguished_title"]),
+        ("is_mentor", ["is_mentor"]),
+        ("mentorship_topics", ["mentorship_topics"]),
     ],
     "jobs": [
         ("title", ["job_title", "title"]),
@@ -75,6 +79,7 @@ FIELD_MAP = {
         ("location", ["location"]),
         ("job_type", ["job_type", "type"]),
         ("experience", ["experience", "experience_required"]),
+        ("salary_range", ["salary_range", "salary"]),
         ("description", ["description"]),
         ("requirements", ["requirements", "eligibility"]),
         ("application_deadline", ["application_deadline", "deadline"]),
@@ -86,6 +91,7 @@ FIELD_MAP = {
         ("state", ["state"]),
         ("country", ["country"]),
         ("description", ["description"]),
+        ("member_count", ["member_count"]),
     ],
     "stories": [
         ("title", ["title", "headline"]),
@@ -110,8 +116,11 @@ FIELD_MAP = {
         ("raised_amount", ["raised_amount"]),
         ("total_donors", ["total_donors"]),
         ("deadline", ["deadline", "end_date"]),
+        ("donation_url", ["donation_url", "donate_url", "campaign_url"]),
     ],
 }
+
+PUBLIC_ENDPOINTS = (*FIELD_MAP, "stats")
 
 # Aggregate counts the chatbot may state. Student/mentor counts are left out on
 # purpose: api.md notes they are not filtered by the public-profile rules.
@@ -130,14 +139,14 @@ STATS_ALLOWED = [
 # Question classification (word-boundary matching; Latin + Hindi keywords)
 # --------------------------------------------------------------------------
 ENDPOINT_KEYWORDS = {
-    "events": ["event", "seminar", "workshop", "conference", "upcoming", "webinar", "reunion", "meetup", "karyakram", "कार्यक्रम", "इवेंट", "आयोजन"],
-    "jobs": ["job", "opportunity", "career", "placement", "recruitment", "internship", "hiring", "vacancy", "naukri", "नौकरी", "रोजगार", "इंटर्नशिप"],
-    "alumni": ["alumni", "alumnus", "graduate", "पूर्व छात्र", "एलुमनाई", "अलुम्नी"],
-    "chapters": ["chapter", "alumni chapter", "चैप्टर"],
-    "stories": ["story", "stories", "success story", "achievement", "testimonial", "सफलता की कहानी"],
-    "news": ["news", "announcement", "notice", "khabar", "समाचार", "खबर", "सूचना"],
-    "gallery": ["gallery", "photo", "picture", "album", "तस्वीर", "फोटो"],
-    "donations": ["donation", "donate", "fundraising", "campaign", "दान"],
+    "events": ["event", "seminar", "workshop", "conference", "upcoming", "webinar", "reunion", "meetup", "karyakram", "कार्यक्रम", "इवेंट", "आयोजन", "समारोह"],
+    "jobs": ["job", "opportunity", "career", "placement", "recruitment", "internship", "hiring", "vacancy", "naukri", "नौकरी", "रोजगार", "इंटर्नशिप", "भर्ती"],
+    "alumni": ["alumni", "alumnus", "graduate", "mentor", "mentorship", "mentoring", "पूर्व छात्र", "एलुमनाई", "अलुम्नी", "स्नातक", "मार्गदर्शक"],
+    "chapters": ["chapter", "alumni chapter", "चैप्टर", "अध्याय"],
+    "stories": ["story", "stories", "success story", "achievement", "testimonial", "सफलता की कहानी", "उपलब्धि"],
+    "news": ["news", "announcement", "notice", "khabar", "समाचार", "खबर", "सूचना", "घोषणा"],
+    "gallery": ["gallery", "photo", "picture", "album", "तस्वीर", "फोटो", "गैलरी"],
+    "donations": ["donation", "donate", "fundraising", "campaign", "दान", "चंदा", "fundraiser"],
 }
 
 COUNT_WORDS = ["how many", "total", "number of", "count", "statistics", "stats", "kitne", "कितने"]
@@ -152,8 +161,9 @@ STOPWORDS = set("""
 what when where which who whom whose how why many much tell show find give list there any the for from with and are is was
 were will can could would should please about me my you your our their this that these those have has had does did not
 latest recent current currently new newest update updates available open all some more also than then into out
-hai hain kya kab kaun kaha kahan kitne kitna batao bataiye bataye dikhao mujhe hume humein ka ki ke ko me mein se par aur koi
-kuch aap naya nayi naye aane wale wala wali kaise baare liye hoga hogi honge chahiye
+hai hain kya kaun kaha kahan kitne kitna batao bataiye bataye dikhao mujhe hume humein ka ki ke ko me mein se par aur koi
+kuch aap naya nayi naye aane wale wala wali kaise baare liye hoga hogi honge chahiye everything every website web site portal
+register registration apply application browse search है हैं क्या कौन कहाँ कितने कितना बताओ दिखाओ मुझे हम हमें का की के को में से पर और कुछ सभी सूची
 """.split())
 
 
@@ -198,14 +208,13 @@ def classify_question(question):
     # "alumni chapter" should be chapters, not the alumni directory
     if "chapters" in matched and "alumni" in matched:
         matched.remove("alumni")
-    return matched or ["documents"]
+    return matched or list(PUBLIC_ENDPOINTS)
 
 
 # --------------------------------------------------------------------------
 # HTTP fetch with short TTL cache
 # --------------------------------------------------------------------------
-_session = requests.Session()
-_session.headers.update({"Accept": "application/json", "User-Agent": "akal-ai-assistant/1.0"})
+_request_local = threading.local()
 _cache = {}
 _cache_lock = threading.Lock()
 
@@ -277,7 +286,12 @@ def _unwrap_list(payload, endpoint):
 
 def _get_json(endpoint, params):
     url = f"{get_base_url()}/public/{endpoint}"
-    response = _session.get(url, params=params or None, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+    session = getattr(_request_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.headers.update({"Accept": "application/json", "User-Agent": "akal-ai-assistant/1.0"})
+        _request_local.session = session
+    response = session.get(url, params=params or None, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
     response.raise_for_status()
     try:
         payload = response.json()
@@ -357,8 +371,7 @@ def _category_words():
     words = set()
     for kws in ENDPOINT_KEYWORDS.values():
         for kw in kws:
-            if kw.isascii():
-                words.update(re.findall(r"[a-z0-9]+", kw))
+            words.update(re.findall(r"[a-z0-9]+|[\u0900-\u097f]+", kw))
     for w in COUNT_WORDS + COUNT_ENTITIES:
         words.update(re.findall(r"[a-z0-9]+", w))
     words.update(w + "s" for w in list(words))
@@ -378,22 +391,72 @@ def _is_ignored_term(term):
 
 def _question_terms(question):
     q = _normalize(question)
-    return [t for t in re.findall(r"[a-z0-9]+", q) if len(t) > 2 and not _is_ignored_term(t)]
+    return [
+        term for term in re.findall(r"[a-z0-9]+|[\u0900-\u097f]+", q)
+        if len(term) > 2 and not _is_ignored_term(term)
+    ]
 
 
 def _record_text(record):
-    return " ".join(str(v) for v in record.values() if v not in (None, "", [], {})).lower()
+    return " ".join(
+        f"{key.replace('_', ' ')} {value}"
+        for key, value in record.items()
+        if value not in (None, "", [], {})
+    ).lower()
 
 
-def _rank_records(question, records, limit):
+def is_name_list_question(question):
+    q = _normalize(question)
+    if not q:
+        return False
+    asks_for_names = any(token in q for token in (
+        "name", "names", "naam", "list", "show", "give", "tell",
+        "नाम", "सूची", "दिखाओ", "बताओ",
+    ))
+    mentions_alumni = any(_has_keyword(q, w) for w in ("alumni", "alumnus", "graduate", "graduates"))
+    if not asks_for_names or not mentions_alumni:
+        return False
+    excludes_detail = not any(token in q for token in ("phone", "email", "contact", "profile", "details"))
+    return excludes_detail
+
+
+def is_listing_question(question):
+    q = _normalize(question)
+    english_terms = ("list", "show all", "all", "everything", "every", "name", "names", "naam")
+    hindi_terms = ("dikhao", "batao", "saare", "sare", "sabhi", "sab kuch", "kya kya",
+                   "सूची", "सभी", "सब कुछ", "क्या क्या", "दिखाओ", "बताओ")
+    return any(_has_keyword(q, token) for token in english_terms) or any(token in q for token in hindi_terms)
+
+
+def is_broad_portal_question(question):
+    q = _normalize(question)
+    english_terms = (
+        "website", "web site", "portal", "site", "all website", "all data",
+        "all information", "everything on", "what can i ask", "what all",
+    )
+    hindi_terms = ("kya kya", "sab kuch", "वेबसाइट", "पोर्टल", "सारी जानकारी", "सब कुछ")
+    return any(_has_keyword(q, token) for token in english_terms) or any(
+        token in q for token in hindi_terms
+    )
+
+
+def _rank_records(question, records, limit, endpoint=None):
+    if endpoint == "alumni" and is_name_list_question(question):
+        return records[:limit] if limit else records
+    if is_broad_portal_question(question):
+        return records[:limit] if limit else records
+
     terms = _question_terms(question)
     if not terms:                       # "latest news", "upcoming events" -> API order
         return records[:limit] if limit else records
     scored = []
     for record in records:
         text = _record_text(record)
-        score = sum(2 if re.search(rf"\b{re.escape(t)}\b", text) else (1 if t in text else 0)
-                    for t in terms)
+        score = sum(
+            2 if (re.search(rf"\b{re.escape(term)}\b", text) if term.isascii() else term in text)
+            else (1 if term in text else 0)
+            for term in terms
+        )
         if score:
             scored.append((score, record))
     scored.sort(key=lambda pair: pair[0], reverse=True)   # stable: keeps API order on ties
@@ -410,21 +473,47 @@ def fetch_relevant_portal_data(question, limit_per_endpoint=5, targets=None):
     q = _normalize(question)
     items = []
 
+    requested = []
     for endpoint in targets:
         if endpoint == "documents":
             continue
 
         params = {}
         if endpoint == "events":
-            params["filter"] = "past" if any(_has_keyword(q, w) for w in PAST_WORDS) else "upcoming"
+            if any(_has_keyword(q, w) for w in PAST_WORDS):
+                params["filter"] = "past"
+            elif any(_has_keyword(q, w) for w in ("upcoming", "future", "next", "आगामी")):
+                params["filter"] = "upcoming"
+        elif endpoint == "alumni":
+            if any(_has_keyword(q, w) for w in ("mentor", "mentorship", "mentoring", "मार्गदर्शक")):
+                params["mentor"] = "true"
+            if any(_has_keyword(q, w) for w in ("distinguished", "notable", "प्रतिष्ठित")):
+                params["distinguished"] = "true"
+        requested.append((endpoint, params))
 
-        records, error, fetched_at = fetch_public_endpoint(endpoint, params)
+    if len(requested) > 1:
+        with ThreadPoolExecutor(max_workers=min(len(requested), 8)) as executor:
+            results = list(executor.map(
+                lambda request: fetch_public_endpoint(*request),
+                requested,
+            ))
+    else:
+        results = [fetch_public_endpoint(*requested[0])] if requested else []
+
+    record_limit = min(MAX_RECORDS_PER_ENDPOINT, 100) if is_name_list_question(question) else (
+        min(MAX_RECORDS_PER_ENDPOINT, 30)
+        if is_listing_question(question) and not is_broad_portal_question(question)
+        else limit_per_endpoint
+    )
+    for (endpoint, _), (records, error, fetched_at) in zip(requested, results):
         if error:
             items.append({"source": endpoint, "error": error})
             continue
 
         records = _apply_freshness(endpoint, records)
-        chosen = records if endpoint == "stats" else _rank_records(question, records, limit_per_endpoint)
+        chosen = records if endpoint == "stats" else _rank_records(question, records, record_limit, endpoint)
+        if endpoint == "alumni" and is_name_list_question(question):
+            chosen = [{"name": record["name"]} for record in chosen if record.get("name")]
         for record in chosen:
             items.append({"source": endpoint, "data": record, "fetched_at": fetched_at})
     return items
